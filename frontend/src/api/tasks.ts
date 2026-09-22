@@ -1,4 +1,13 @@
-import type { PageResult, TaskDetail, TaskListItem, TaskPayload } from '../types/domain';
+import type {
+  PageResult,
+  PublishReportPayload,
+  ReassignPayload,
+  ReassignResult,
+  TaskDetail,
+  TaskListItem,
+  TaskPayload,
+  TeamWorkloadReport
+} from '../types/domain';
 import { buildQuery, http } from './client';
 
 export interface TaskQuery {
@@ -22,5 +31,10 @@ export const taskApi = {
   remove: (id: number) => http.del<{ id: number }>(`/cleaning-tasks/${id}`),
   start: (id: number) => http.post<{ id: number }>(`/cleaning-tasks/${id}/start`),
   complete: (id: number) => http.post<{ id: number }>(`/cleaning-tasks/${id}/complete`),
-  cancel: (id: number, reason: string) => http.post<{ id: number }>(`/cleaning-tasks/${id}/cancel`, { reason })
+  cancel: (id: number, reason: string) => http.post<{ id: number }>(`/cleaning-tasks/${id}/cancel`, { reason }),
+  reassign: (id: number, payload: ReassignPayload) => http.post<ReassignResult>(`/cleaning-tasks/${id}/reassign`, payload),
+  teamWorkloads: (month?: string) =>
+    http.get<TeamWorkloadReport>(`/cleaning-tasks/team-workloads${buildQuery({ month })}`),
+  publishTeamWorkloadReport: (payload: PublishReportPayload) =>
+    http.post<TeamWorkloadReport>('/cleaning-tasks/team-workloads/publish', payload)
 };

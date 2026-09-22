@@ -17,6 +17,7 @@ type CleaningRecord struct {
 	SludgeVolumeM3     float64   `gorm:"not null" json:"sludgeVolumeM3"`
 	WaterVolumeM3      float64   `json:"waterVolumeM3"`
 	PersonnelCount     int       `gorm:"not null" json:"personnelCount"`
+	ActualWorkHours    float64   `json:"actualWorkHours"`
 	Method             string    `gorm:"size:24" json:"method"`
 	Equipment          string    `gorm:"size:128" json:"equipment"`
 	Weather            string    `gorm:"size:16" json:"weather"`

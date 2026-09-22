@@ -44,7 +44,7 @@ func (s *Service) Create(ctx context.Context, req SaveRequest) (*CleaningTask, e
 
 	for attempt := 0; attempt < 5; attempt++ {
 		task.Code = s.nextCode(ctx, task.PlanStartDate)
-		err := s.repo.Create(ctx, task)
+		err := s.repo.CreateWithInitialAssignment(ctx, task)
 		if err == nil {
 			return task, nil
 		}
@@ -75,9 +75,12 @@ func (s *Service) Update(ctx context.Context, id uint, req SaveRequest) (*Cleani
 		return nil, httpx.InvalidState("任务已录入清淤记录，不能再更换关联管段")
 	}
 
+	teamName := task.TeamName
 	if err := s.build(ctx, req, task); err != nil {
 		return nil, err
 	}
+	// 班组变更必须走改派接口，保证原班组、接手班组、原因、时间与工作量边界可追溯。
+	task.TeamName = teamName
 	if err := s.repo.Save(ctx, task); err != nil {
 		return nil, httpx.WrapInternal("修改清淤任务失败", err)
 	}
@@ -103,7 +106,7 @@ func (s *Service) Delete(ctx context.Context, id uint) error {
 	if hasAcceptance {
 		return httpx.Conflict("该任务已存在验收记录，无法删除")
 	}
-	if err := s.repo.Delete(ctx, id); err != nil {
+	if err := s.repo.DeleteWithAssignments(ctx, id); err != nil {
 		return notFound(err)
 	}
 	return nil
@@ -177,6 +180,20 @@ func (s *Service) Detail(ctx context.Context, id uint) (*DetailResponse, error) 
 		return nil, httpx.WrapInternal("统计清淤量失败", err)
 	}
 	detail.RecordTotals = totals
+
+	assignments, err := s.repo.ListAssignments(ctx, id)
+	if err != nil {
+		return nil, httpx.WrapInternal("查询班组改派记录失败", err)
+	}
+	detail.Assignments = make([]TeamAssignmentItem, 0, len(assignments))
+	for _, assignment := range assignments {
+		detail.Assignments = append(detail.Assignments, toAssignmentItem(assignment))
+	}
+	workloads, err := refx.TeamWorkloadsForTask(ctx, s.repo.DB(), id)
+	if err != nil {
+		return nil, httpx.WrapInternal("统计班组工作量失败", err)
+	}
+	detail.TeamWorkloads = workloads
 
 	acceptance, err := refx.LatestAcceptanceForTask(ctx, s.repo.DB(), id)
 	if err != nil {
@@ -292,9 +309,9 @@ func (s *Service) CountByStatus(ctx context.Context) (map[string]int64, error) {
 func AllowedActions(status string) []string {
 	switch status {
 	case StatusPending:
-		return []string{ActionStart, ActionEdit, ActionCancel}
+		return []string{ActionStart, ActionEdit, ActionReassign, ActionCancel}
 	case StatusInProgress:
-		return []string{ActionComplete, ActionEdit, ActionCancel}
+		return []string{ActionComplete, ActionEdit, ActionReassign, ActionCancel}
 	case StatusCompleted:
 		return []string{ActionAccept}
 	default:

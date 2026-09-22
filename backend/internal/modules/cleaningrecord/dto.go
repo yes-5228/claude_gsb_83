@@ -18,6 +18,7 @@ type SaveRequest struct {
 	SludgeVolumeM3     float64   `json:"sludgeVolumeM3" label:"清淤量(m³)" validate:"gt=0,lte=100000"`
 	WaterVolumeM3      float64   `json:"waterVolumeM3" label:"用水量(m³)" validate:"gte=0,lte=100000"`
 	PersonnelCount     int       `json:"personnelCount" label:"作业人数" validate:"gt=0,lte=500"`
+	ActualWorkHours    float64   `json:"actualWorkHours" label:"实际作业时间(小时)" validate:"gte=0,lte=1000"`
 	Method             string    `json:"method" label:"清淤方式"`
 	Equipment          string    `json:"equipment" label:"主要设备" validate:"max=128"`
 	Weather            string    `json:"weather" label:"天气"`

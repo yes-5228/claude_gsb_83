@@ -129,10 +129,11 @@ func TestDeleteTaskBlockedAfterRecord(t *testing.T) {
 
 func TestAllowedActionsFollowStatus(t *testing.T) {
 	cases := map[string][]string{
-		cleaningtask.StatusPending:   {cleaningtask.ActionStart, cleaningtask.ActionEdit, cleaningtask.ActionCancel},
-		cleaningtask.StatusCompleted: {cleaningtask.ActionAccept},
-		cleaningtask.StatusAccepted:  {},
-		cleaningtask.StatusCancelled: {},
+		cleaningtask.StatusPending:    {cleaningtask.ActionStart, cleaningtask.ActionEdit, cleaningtask.ActionReassign, cleaningtask.ActionCancel},
+		cleaningtask.StatusInProgress: {cleaningtask.ActionComplete, cleaningtask.ActionEdit, cleaningtask.ActionReassign, cleaningtask.ActionCancel},
+		cleaningtask.StatusCompleted:  {cleaningtask.ActionAccept},
+		cleaningtask.StatusAccepted:   {},
+		cleaningtask.StatusCancelled:  {},
 	}
 	for status, want := range cases {
 		got := cleaningtask.AllowedActions(status)

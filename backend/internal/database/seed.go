@@ -187,6 +187,25 @@ func Seed(db *gorm.DB, logger *slog.Logger) error {
 			taskID[tasks[i].Code] = tasks[i].ID
 		}
 
+		assignments := make([]cleaningtask.TeamAssignment, 0, len(tasks))
+		for i := range tasks {
+			teamName := tasks[i].TeamName
+			if teamName == "" {
+				teamName = "未指定班组"
+			}
+			assignments = append(assignments, cleaningtask.TeamAssignment{
+				TaskID:        tasks[i].ID,
+				Sequence:      1,
+				TeamName:      teamName,
+				ChangeType:    cleaningtask.AssignmentInitial,
+				EffectiveDate: cleaningtask.InitialAssignmentDate,
+				Reason:        "任务派工",
+			})
+		}
+		if err := tx.Create(&assignments).Error; err != nil {
+			return err
+		}
+
 		records := []cleaningrecord.CleaningRecord{
 			{
 				Code:   "QJ" + today.AddDays(-30).Format("20060102") + "-0001",

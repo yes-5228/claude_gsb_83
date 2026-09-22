@@ -76,5 +76,59 @@ func Migrate(db *gorm.DB) error {
 		&cleaningtask.CleaningTask{},
 		&cleaningrecord.CleaningRecord{},
 		&acceptance.AcceptanceRecord{},
+		&cleaningtask.TeamAssignment{},
+		&cleaningtask.TeamWorkloadReport{},
+		&cleaningtask.TeamWorkloadSnapshot{},
 	)
+}
+
+// SeedTeamAssignments 为升级前已存在的任务补齐初始派工记录。
+//
+// 派工记录表启用后，新建任务会在同一事务中写入初始记录；这里只处理历史任务。
+func SeedTeamAssignments(db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		var taskIDs []uint
+		if err := tx.Model(&cleaningtask.CleaningTask{}).
+			Where("id NOT IN (?)",
+				tx.Model(&cleaningtask.TeamAssignment{}).Select("task_id"),
+			).
+			Pluck("id", &taskIDs).Error; err != nil {
+			return err
+		}
+		if len(taskIDs) == 0 {
+			return nil
+		}
+
+		type taskTeam struct {
+			ID       uint
+			TeamName string
+		}
+		tasks := make([]taskTeam, 0, len(taskIDs))
+		if err := tx.Model(&cleaningtask.CleaningTask{}).
+			Select("id, team_name").
+			Where("id IN ?", taskIDs).
+			Scan(&tasks).Error; err != nil {
+			return err
+		}
+
+		assignments := make([]cleaningtask.TeamAssignment, 0, len(tasks))
+		for _, task := range tasks {
+			teamName := task.TeamName
+			if teamName == "" {
+				teamName = "未指定班组"
+			}
+			assignments = append(assignments, cleaningtask.TeamAssignment{
+				TaskID:        task.ID,
+				Sequence:      1,
+				TeamName:      teamName,
+				ChangeType:    cleaningtask.AssignmentInitial,
+				EffectiveDate: cleaningtask.InitialAssignmentDate,
+				Reason:        "历史任务初始派工迁移",
+			})
+		}
+		if len(assignments) == 0 {
+			return nil
+		}
+		return tx.Create(&assignments).Error
+	})
 }

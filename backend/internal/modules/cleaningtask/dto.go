@@ -93,5 +93,7 @@ type DetailResponse struct {
 	Segment        *pipesegment.Brief    `json:"segment"`
 	RecordTotals   refx.RecordTotals     `json:"recordTotals"`
 	Acceptance     *refx.AcceptanceBrief `json:"acceptance"`
+	Assignments    []TeamAssignmentItem  `json:"assignments"`
+	TeamWorkloads  []refx.TeamWorkload   `json:"teamWorkloads"`
 	AllowedActions []string              `json:"allowedActions"`
 }

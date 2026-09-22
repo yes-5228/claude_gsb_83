@@ -1,14 +1,18 @@
 // 运行看板：跨模块汇总管段、任务、清淤与验收数据。
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { toErrorMessage } from '../../api/client';
 import { dashboardApi } from '../../api/dashboard';
+import { taskApi } from '../../api/tasks';
 import { DataTable, type Column } from '../../components/DataTable';
 import { PageHeader } from '../../components/PageHeader';
 import { SectionCard } from '../../components/SectionCard';
 import { StatCard } from '../../components/StatCard';
 import { StateBlock } from '../../components/StateBlock';
+import { useToast } from '../../components/Toast';
 import { useAsync } from '../../hooks/useAsync';
 import { useMeta } from '../../providers/MetaProvider';
-import type { DistrictStat, PendingAcceptanceItem, RecentRecordItem } from '../../types/domain';
+import type { DistrictStat, PendingAcceptanceItem, RecentRecordItem, TeamWorkload } from '../../types/domain';
 import { formatDate, formatLength, formatNumber, formatPercent, formatVolume } from '../../utils/format';
 import { optionLabel } from '../../utils/options';
 
@@ -93,13 +97,41 @@ const recentColumns: Column<RecentRecordItem>[] = [
   { key: 'sludgeVolumeM3', title: '清淤量', width: '110px', align: 'right', render: (row) => formatVolume(row.sludgeVolumeM3) }
 ];
 
+const teamWorkloadColumns: Column<TeamWorkload>[] = [
+  { key: 'teamName', title: '班组', render: (row) => <span className="cell-main">{row.teamName || '未指定班组'}</span> },
+  { key: 'recordCount', title: '记录', width: '80px', align: 'right', render: (row) => formatNumber(row.recordCount, 0) },
+  { key: 'personnelCount', title: '人次', width: '80px', align: 'right', render: (row) => formatNumber(row.personnelCount, 0) },
+  { key: 'actualWorkHours', title: '工时', width: '80px', align: 'right', render: (row) => formatNumber(row.actualWorkHours, 1) },
+  { key: 'lengthM', title: '长度', width: '100px', align: 'right', render: (row) => formatLength(row.lengthM) },
+  { key: 'sludgeVolumeM3', title: '清淤量', width: '100px', align: 'right', render: (row) => formatVolume(row.sludgeVolumeM3) }
+];
+
 export function DashboardPage() {
   const navigate = useNavigate();
+  const toast = useToast();
   const { enums } = useMeta();
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const [publishingReport, setPublishingReport] = useState(false);
   const overview = useAsync(() => dashboardApi.overview(), []);
+  const teamReport = useAsync(() => taskApi.teamWorkloads(currentMonth), []);
   const districts = useAsync(() => dashboardApi.districtStats(), []);
   const pending = useAsync(() => dashboardApi.pendingAcceptance(6), []);
   const recent = useAsync(() => dashboardApi.recentRecords(6), []);
+
+  const publishReport = async () => {
+    setPublishingReport(true);
+    try {
+      await taskApi.publishTeamWorkloadReport({ month: currentMonth });
+      toast.success('班组月度工作量月报已发布，后续改派不会改写该月报');
+      await teamReport.reload();
+      overview.reload();
+    } catch (cause: unknown) {
+      toast.error(toErrorMessage(cause));
+    } finally {
+      setPublishingReport(false);
+    }
+  };
 
   const data = overview.data;
   const taskStatusBars: BarItem[] = enums
@@ -186,6 +218,35 @@ export function DashboardPage() {
           />
         </div>
       </StateBlock>
+
+      <SectionCard
+        title={`${currentMonth} 班组工作量`}
+        subtitle="与任务详情使用同一归属口径：按清淤记录的实际作业日期归属到当日生效班组"
+        extra={
+          teamReport.data?.published ? (
+            <span className="tag tag-success">月报已发布（快照）</span>
+          ) : (
+            <button type="button" className="btn btn-primary btn-sm" disabled={publishingReport} onClick={() => void publishReport()}>
+              {publishingReport ? '发布中…' : '发布月报'}
+            </button>
+          )
+        }
+      >
+        <div className="card-body-flush">
+          <DataTable
+            columns={teamWorkloadColumns}
+            rows={teamReport.data?.items ?? []}
+            rowKey={(row) => row.teamName}
+            loading={teamReport.loading}
+            error={teamReport.error}
+            onRetry={teamReport.reload}
+            emptyText="本月暂无班组工作量"
+          />
+        </div>
+        {teamReport.data?.published ? (
+          <p className="form-note">该月工作量已按发布时快照固化；跨月改派只会影响未发布月份，不会改写本月月报。</p>
+        ) : null}
+      </SectionCard>
 
       <div className="panel-grid panel-grid-wide">
         <SectionCard

@@ -126,6 +126,12 @@ export function RecordListPage() {
       )
     },
     {
+      key: 'team',
+      title: '归属班组',
+      width: '130px',
+      render: (row) => row.task?.teamName || '未指定班组'
+    },
+    {
       key: 'method',
       title: '清淤方式',
       width: '120px',

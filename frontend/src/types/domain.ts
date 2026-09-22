@@ -10,7 +10,7 @@ export type Weather = 'sunny' | 'cloudy' | 'overcast' | 'light_rain' | 'heavy_ra
 export type AcceptanceResult = 'pass' | 'rework';
 
 /** 任务可执行的操作标识，由后端 allowedActions 下发。 */
-export type TaskAction = 'start' | 'complete' | 'accept' | 'cancel' | 'edit';
+export type TaskAction = 'start' | 'complete' | 'accept' | 'cancel' | 'edit' | 'reassign';
 
 export interface Option {
   value: string;
@@ -174,12 +174,61 @@ export interface TaskListItem extends CleaningTask {
   recordTotals: RecordTotals;
 }
 
+export interface TeamWorkload {
+  teamName: string;
+  recordCount: number;
+  personnelCount: number;
+  actualWorkHours: number;
+  lengthM: number;
+  sludgeVolumeM3: number;
+  waterVolumeM3: number;
+}
+
+export interface TeamAssignment {
+  id: number;
+  sequence: number;
+  teamName: string;
+  changeType: 'initial' | 'reassign';
+  effectiveDate: string | null;
+  reason: string;
+  operatorName: string;
+  createdAt: string;
+}
+
 export interface TaskDetail {
   task: CleaningTask;
   segment: SegmentBrief | null;
   recordTotals: RecordTotals;
   acceptance: AcceptanceBrief | null;
+  assignments: TeamAssignment[];
+  teamWorkloads: TeamWorkload[];
   allowedActions: TaskAction[];
+}
+
+export interface ReassignPayload {
+  currentTeamName: string;
+  targetTeamName: string;
+  reason: string;
+  operatorName?: string;
+}
+
+export interface ReassignResult {
+  task: CleaningTask;
+  assignment: TeamAssignment;
+  workloads: TeamWorkload[];
+}
+
+export interface TeamWorkloadReport {
+  month: string;
+  published: boolean;
+  publishedAt?: string;
+  publishedBy?: string;
+  items: TeamWorkload[];
+}
+
+export interface PublishReportPayload {
+  month: string;
+  publishedBy?: string;
 }
 
 export interface TaskPayload {
@@ -220,6 +269,7 @@ export interface CleaningRecord {
   sludgeVolumeM3: number;
   waterVolumeM3: number;
   personnelCount: number;
+  actualWorkHours: number;
   method: CleaningMethod | '';
   equipment: string;
   weather: Weather | '';
@@ -248,6 +298,7 @@ export interface RecordPayload {
   sludgeVolumeM3: number;
   waterVolumeM3: number;
   personnelCount: number;
+  actualWorkHours: number;
   method: CleaningMethod | '';
   equipment: string;
   weather: Weather | '';
@@ -325,6 +376,7 @@ export interface Overview {
   sludgeTotalM3: number;
   sludgeThisMonthM3: number;
   cleanedLengthM: number;
+  teamWorkloads: TeamWorkload[];
   acceptanceTotal: number;
   acceptancePassCount: number;
   /** 验收合格率，后端已按百分比返回（66.67 表示 66.67%）。 */

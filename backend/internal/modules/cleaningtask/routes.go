@@ -11,6 +11,8 @@ func Register(router fiber.Router, db *gorm.DB, segments SegmentGateway) *Servic
 	handler := NewHandler(svc)
 
 	group := router.Group("/cleaning-tasks")
+	group.Get("/team-workloads", handler.TeamWorkloadReport)
+	group.Post("/team-workloads/publish", handler.PublishTeamWorkloadReport)
 	group.Get("", handler.List)
 	group.Post("", handler.Create)
 	group.Get("/:id", handler.Detail)
@@ -19,6 +21,7 @@ func Register(router fiber.Router, db *gorm.DB, segments SegmentGateway) *Servic
 	group.Post("/:id/start", handler.Start)
 	group.Post("/:id/complete", handler.Complete)
 	group.Post("/:id/cancel", handler.Cancel)
+	group.Post("/:id/reassign", handler.Reassign)
 
 	return svc
 }

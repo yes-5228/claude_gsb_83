@@ -159,11 +159,25 @@ func (s *Service) List(ctx context.Context, query ListQuery) ([]ListItem, int64,
 		return nil, 0, httpx.WrapInternal("查询任务信息失败", err)
 	}
 
+	workDates := make([]refx.TaskWorkDate, 0, len(records))
+	for i := range records {
+		workDates = append(workDates, refx.TaskWorkDate{TaskID: records[i].TaskID, WorkDate: records[i].CleanedAt.Time})
+	}
+	teamNames, err := refx.AttributedTeamNames(ctx, s.repo.DB(), workDates)
+	if err != nil {
+		return nil, 0, httpx.WrapInternal("查询班组归属失败", err)
+	}
+
 	items := make([]ListItem, 0, len(records))
 	for i := range records {
 		record := records[i]
 		item := ListItem{CleaningRecord: record}
 		if brief, ok := briefs[record.TaskID]; ok {
+			if teams, ok := teamNames[record.TaskID]; ok {
+				if teamName, ok := teams[record.CleanedAt.Time]; ok && teamName != "" {
+					brief.TeamName = teamName
+				}
+			}
 			item.Task = &brief
 		}
 		items = append(items, item)
@@ -181,8 +195,20 @@ func (s *Service) Detail(ctx context.Context, id uint) (*DetailResponse, error) 
 	if err != nil {
 		return nil, httpx.WrapInternal("查询任务信息失败", err)
 	}
+	teamNames, err := refx.AttributedTeamNames(ctx, s.repo.DB(), []refx.TaskWorkDate{{
+		TaskID:   record.TaskID,
+		WorkDate: record.CleanedAt.Time,
+	}})
+	if err != nil {
+		return nil, httpx.WrapInternal("查询班组归属失败", err)
+	}
 	detail := &DetailResponse{Record: record}
 	if brief, ok := briefs[record.TaskID]; ok {
+		if teams, ok := teamNames[record.TaskID]; ok {
+			if teamName, ok := teams[record.CleanedAt.Time]; ok && teamName != "" {
+				brief.TeamName = teamName
+			}
+		}
 		detail.Task = &brief
 	}
 	return detail, nil
@@ -221,6 +247,7 @@ func apply(req SaveRequest, target *CleaningRecord) {
 	target.SludgeVolumeM3 = req.SludgeVolumeM3
 	target.WaterVolumeM3 = req.WaterVolumeM3
 	target.PersonnelCount = req.PersonnelCount
+	target.ActualWorkHours = req.ActualWorkHours
 	target.Method = strings.TrimSpace(req.Method)
 	target.Equipment = strings.TrimSpace(req.Equipment)
 	target.Weather = strings.TrimSpace(req.Weather)

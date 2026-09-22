@@ -147,6 +147,9 @@ npm run dev            # http://localhost:5173
 | POST | `/api/v1/cleaning-tasks/:id/start` | 开工（待开工 → 清淤中） |
 | POST | `/api/v1/cleaning-tasks/:id/complete` | 完工报验（清淤中 → 待验收，需至少 1 条清淤记录） |
 | POST | `/api/v1/cleaning-tasks/:id/cancel` | 取消任务（需填写取消原因） |
+| POST | `/api/v1/cleaning-tasks/:id/reassign` | 改派班组（完工报验后禁用，记录原班组、接手班组、原因、时间） |
+| GET | `/api/v1/cleaning-tasks/team-workloads?month=YYYY-MM` | 班组月度工作量；已发布月份返回月报快照 |
+| POST | `/api/v1/cleaning-tasks/team-workloads/publish` | 发布班组月度工作量快照，发布后不可被改派改写 |
 | GET | `/api/v1/cleaning-records` | 记录列表（`keyword` `taskId` `segmentId` `method` `weather` `dateFrom` `dateTo`） |
 | GET | `/api/v1/cleaning-records/:id` | 记录详情（含所属任务与管段） |
 | POST/PUT/DELETE | `/api/v1/cleaning-records[/:id]` | 录入 / 修改 / 删除清淤记录 |
@@ -173,6 +176,9 @@ pending ──开工──▶ in_progress ──完工报验──▶ completed 
 
 - 首次录入清淤记录时，任务自动从「待开工」推进到「清淤中」。
 - 完工报验要求任务下至少有 1 条清淤记录。
+- 待开工、清淤中的任务允许改派班组；改派记录原班组、接手班组、原因与时间，已完工报验、已验收或已取消任务禁止改派。
+- 班组工作量统一按清淤记录的实际作业日期和当时生效派工归属；任务详情、班组统计与看板共用同一 SQL 口径，跨日期改派不会重复计算。
+- 班组月报发布后形成不可变快照；跨月改派不会改写已经发布的月报。改派请求带原班组校验，两个人同时改派同一条任务时只有一次能生效。
 - 验收登记要求任务处于「待验收」，且该任务没有已判定合格的验收记录；
   若上一次结论为「需整改」，必须先登记整改完成才能复验。
 - 验收合格会在**同一个事务**内把任务置为「已验收」、写入验收时间，并把管段清淤次数 +1、

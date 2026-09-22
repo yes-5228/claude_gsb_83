@@ -257,6 +257,9 @@ export function TaskFormPage() {
               <input
                 className="input"
                 value={form.values.teamName}
+                readOnly={isEdit}
+                aria-readonly={isEdit}
+                placeholder={isEdit ? '如需更换班组，请使用任务详情中的改派班组' : ''}
                 onChange={(event) => form.setValue('teamName', event.target.value)}
               />
             </FormField>

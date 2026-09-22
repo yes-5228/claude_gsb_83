@@ -35,10 +35,11 @@ type Overview struct {
 	TaskByStatus map[string]int64 `json:"taskByStatus"`
 	TaskOverdue  int64            `json:"taskOverdue"`
 
-	RecordTotal       int64   `json:"recordTotal"`
-	SludgeTotalM3     float64 `json:"sludgeTotalM3"`
-	SludgeThisMonthM3 float64 `json:"sludgeThisMonthM3"`
-	CleanedLengthM    float64 `json:"cleanedLengthM"`
+	RecordTotal       int64               `json:"recordTotal"`
+	SludgeTotalM3     float64             `json:"sludgeTotalM3"`
+	SludgeThisMonthM3 float64             `json:"sludgeThisMonthM3"`
+	CleanedLengthM    float64             `json:"cleanedLengthM"`
+	TeamWorkloads     []refx.TeamWorkload `json:"teamWorkloads"`
 
 	AcceptanceTotal        int64   `json:"acceptanceTotal"`
 	AcceptancePassCount    int64   `json:"acceptancePassCount"`
@@ -124,15 +125,22 @@ func (s *Service) Overview(ctx context.Context) (*Overview, error) {
 	result.CleanedLengthM = num.Round2(recordStats.LengthM)
 
 	monthStart := date.New(time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC))
+	month := monthStart.Time.Format("2006-01")
 	var monthSludge float64
-	err = s.db.WithContext(ctx).Table(refx.TableCleaningRecords).
-		Select("COALESCE(SUM(sludge_volume_m3), 0)").
-		Where("cleaned_at >= ?", monthStart.Time).
+	err = s.db.WithContext(ctx).Table(refx.TableCleaningRecords+" AS r").
+		Select("COALESCE(SUM(r.sludge_volume_m3), 0)").
+		Where("r.cleaned_at >= ?", monthStart.Time).
 		Scan(&monthSludge).Error
 	if err != nil {
 		return nil, httpx.WrapInternal("统计本月清淤量失败", err)
 	}
 	result.SludgeThisMonthM3 = num.Round2(monthSludge)
+
+	teamWorkloads, _, err := refx.TeamWorkloadsOrSnapshot(ctx, s.db, month)
+	if err != nil {
+		return nil, httpx.WrapInternal("统计班组工作量失败", err)
+	}
+	result.TeamWorkloads = teamWorkloads
 
 	// ---------- 验收记录 ----------
 	var acceptanceTotal int64
@@ -329,7 +337,8 @@ func (s *Service) RecentRecords(ctx context.Context, limit int) ([]RecentRecordI
 	items := make([]RecentRecordItem, 0, limit)
 	err := s.db.WithContext(ctx).Table(refx.TableCleaningRecords + " AS r").
 		Select(`r.id AS record_id, r.code, r.cleaned_at, r.length_m, r.sludge_volume_m3, r.recorder_name,
-			t.id AS task_id, t.code AS task_code, t.title AS task_title, t.team_name,
+			t.id AS task_id, t.code AS task_code, t.title AS task_title,
+			COALESCE(` + refx.AttributedTeamExpr("r") + `, '未指定班组') AS team_name,
 			COALESCE(s.code, '') AS segment_code,
 			COALESCE(s.name, '') AS segment_name`).
 		Joins("INNER JOIN " + refx.TableCleaningTasks + " AS t ON t.id = r.task_id").

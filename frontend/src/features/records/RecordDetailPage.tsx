@@ -90,6 +90,7 @@ export function RecordDetailPage() {
                   { label: '清淤量', value: formatVolume(record.sludgeVolumeM3) },
                   { label: '用水量', value: formatVolume(record.waterVolumeM3) },
                   { label: '作业人数', value: `${formatNumber(record.personnelCount, 0)} 人` },
+                  { label: '实际作业时间', value: `${formatNumber(record.actualWorkHours ?? 0, 1)} 小时` },
                   { label: '天气', value: <StatusTag list="weathers" value={record.weather} /> },
                   { label: '主要设备', value: record.equipment || '—' },
                   { label: '污泥消纳点', value: record.sludgeDisposalSite || '—' },

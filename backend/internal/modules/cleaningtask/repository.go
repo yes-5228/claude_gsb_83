@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
+	"github.com/drainage/desilting/internal/shared/date"
 	"github.com/drainage/desilting/internal/shared/refx"
 )
 
@@ -16,6 +18,12 @@ var ErrNotFound = errors.New("清淤任务不存在")
 
 // ErrStateConflict 并发操作导致状态已变化。
 var ErrStateConflict = errors.New("任务状态已变化，请刷新后重试")
+
+// ErrAssignmentNotFound 班组派工记录不存在。
+var ErrAssignmentNotFound = errors.New("班组派工记录不存在")
+
+// ErrSameTeam 接手班组与原班组相同。
+var ErrSameTeam = errors.New("接手班组不能与原班组相同")
 
 // Repository 清淤任务数据访问。
 type Repository struct {
@@ -35,6 +43,132 @@ func (r *Repository) DB() *gorm.DB {
 // Create 新增任务。
 func (r *Repository) Create(ctx context.Context, task *CleaningTask) error {
 	return r.db.WithContext(ctx).Create(task).Error
+}
+
+// CreateWithInitialAssignment 新增任务并写入初始派工，保证派工历史与任务同生同灭。
+func (r *Repository) CreateWithInitialAssignment(ctx context.Context, task *CleaningTask) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(task).Error; err != nil {
+			return err
+		}
+		teamName := strings.TrimSpace(task.TeamName)
+		if teamName == "" {
+			teamName = "未指定班组"
+		}
+		assignment := &TeamAssignment{
+			TaskID:        task.ID,
+			Sequence:      1,
+			TeamName:      teamName,
+			ChangeType:    AssignmentInitial,
+			EffectiveDate: InitialAssignmentDate,
+			Reason:        "任务派工",
+		}
+		return tx.Create(assignment).Error
+	})
+}
+
+// LatestAssignment 查询任务当前班组归属。
+func (r *Repository) LatestAssignment(ctx context.Context, taskID uint) (*TeamAssignment, error) {
+	var assignment TeamAssignment
+	err := r.db.WithContext(ctx).
+		Where("task_id = ?", taskID).
+		Order("effective_date DESC, sequence DESC").
+		First(&assignment).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrAssignmentNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &assignment, nil
+}
+
+// ListAssignments 查询任务的派工 / 改派历史。
+func (r *Repository) ListAssignments(ctx context.Context, taskID uint) ([]TeamAssignment, error) {
+	items := make([]TeamAssignment, 0)
+	err := r.db.WithContext(ctx).
+		Where("task_id = ?", taskID).
+		Order("sequence ASC").
+		Find(&items).Error
+	return items, err
+}
+
+// ReassignTeam 在事务中追加改派记录并更新任务当前班组。
+func (r *Repository) ReassignTeam(ctx context.Context, taskID uint, current, target string, req ReassignRequest) (*CleaningTask, *TeamAssignment, error) {
+	var resultTask *CleaningTask
+	var resultAssignment *TeamAssignment
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var task CleaningTask
+		if err := lockForUpdate(tx).First(&task, taskID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrNotFound
+			}
+			return err
+		}
+
+		var latest TeamAssignment
+		if err := lockForUpdate(tx).
+			Where("task_id = ?", taskID).
+			Order("sequence DESC").
+			First(&latest).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrAssignmentNotFound
+			}
+			return err
+		}
+		if latest.TeamName != current {
+			return ErrStateConflict
+		}
+		if latest.TeamName == target {
+			return ErrSameTeam
+		}
+
+		assignment := &TeamAssignment{
+			TaskID:        taskID,
+			Sequence:      latest.Sequence + 1,
+			TeamName:      target,
+			ChangeType:    AssignmentReassign,
+			EffectiveDate: date.Today(),
+			Reason:        strings.TrimSpace(req.Reason),
+			OperatorName:  strings.TrimSpace(req.OperatorName),
+		}
+		if err := tx.Create(assignment).Error; err != nil {
+			return err
+		}
+		updateResult := tx.Model(&CleaningTask{}).
+			Where("id = ? AND team_name = ?", taskID, current).
+			Updates(map[string]any{"team_name": target, "updated_at": time.Now()})
+		if updateResult.Error != nil {
+			return updateResult.Error
+		}
+		if updateResult.RowsAffected == 0 {
+			return ErrStateConflict
+		}
+		if err := tx.First(&task, taskID).Error; err != nil {
+			return err
+		}
+		resultTask = &task
+		resultAssignment = assignment
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return resultTask, resultAssignment, nil
+}
+
+// DeleteWithAssignments 删除任务时同步删除派工历史。
+func (r *Repository) DeleteWithAssignments(ctx context.Context, id uint) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Where("id = ?", id).Delete(&CleaningTask{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return ErrNotFound
+		}
+		return tx.Where("task_id = ?", id).Delete(&TeamAssignment{}).Error
+	})
 }
 
 // Save 保存任务全部字段。
@@ -195,4 +329,12 @@ func (r *Repository) CountByStatus(ctx context.Context) (map[string]int64, error
 		result[item.Status] = item.Total
 	}
 	return result, nil
+}
+
+// lockForUpdate 在支持行锁的数据库上加锁；SQLite 依赖写事务串行化。
+func lockForUpdate(tx *gorm.DB) *gorm.DB {
+	if tx.Dialector != nil && tx.Dialector.Name() == "sqlite" {
+		return tx
+	}
+	return tx.Clauses(clause.Locking{Strength: "UPDATE"})
 }

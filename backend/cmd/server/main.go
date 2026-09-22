@@ -41,6 +41,9 @@ func run() error {
 	if err := database.Migrate(db); err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)
 	}
+	if err := database.SeedTeamAssignments(db); err != nil {
+		return fmt.Errorf("初始化班组派工记录失败: %w", err)
+	}
 	if cfg.SeedEnabled {
 		if err := database.Seed(db, logger); err != nil {
 			return fmt.Errorf("初始化演示数据失败: %w", err)

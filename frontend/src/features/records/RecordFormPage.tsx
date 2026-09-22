@@ -22,6 +22,7 @@ interface RecordFormValues {
   sludgeVolumeM3: string;
   waterVolumeM3: string;
   personnelCount: string;
+  actualWorkHours: string;
   method: string;
   equipment: string;
   weather: string;
@@ -40,6 +41,7 @@ function emptyForm(taskId = ''): RecordFormValues {
     sludgeVolumeM3: '',
     waterVolumeM3: '',
     personnelCount: '',
+    actualWorkHours: '',
     method: '',
     equipment: '',
     weather: '',
@@ -59,6 +61,7 @@ function toFormValues(record: CleaningRecord): RecordFormValues {
     sludgeVolumeM3: String(record.sludgeVolumeM3),
     waterVolumeM3: String(record.waterVolumeM3),
     personnelCount: String(record.personnelCount),
+    actualWorkHours: String(record.actualWorkHours ?? 0),
     method: record.method,
     equipment: record.equipment,
     weather: record.weather,
@@ -78,6 +81,7 @@ function toPayload(values: RecordFormValues): RecordPayload {
     sludgeVolumeM3: Number(values.sludgeVolumeM3),
     waterVolumeM3: values.waterVolumeM3 === '' ? 0 : Number(values.waterVolumeM3),
     personnelCount: Number(values.personnelCount),
+    actualWorkHours: values.actualWorkHours === '' ? 0 : Number(values.actualWorkHours),
     method: values.method as RecordPayload['method'],
     equipment: values.equipment.trim(),
     weather: values.weather as RecordPayload['weather'],
@@ -117,6 +121,10 @@ function validate(values: RecordFormValues): FormErrors<RecordFormValues> {
   const personnel = Number(values.personnelCount);
   if (values.personnelCount === '' || !Number.isInteger(personnel) || personnel <= 0 || personnel > 500) {
     errors.personnelCount = '作业人数需为 1 ~ 500 之间的整数';
+  }
+  const workHours = Number(values.actualWorkHours);
+  if (values.actualWorkHours !== '' && (Number.isNaN(workHours) || workHours < 0 || workHours > 1000)) {
+    errors.actualWorkHours = '实际作业时间需在 0 ~ 1000 小时之间';
   }
   if (!values.recorderName.trim()) {
     errors.recorderName = '记录人不能为空';
@@ -264,6 +272,14 @@ export function RecordFormPage() {
                 inputMode="numeric"
                 value={form.values.personnelCount}
                 onChange={(event) => form.setValue('personnelCount', event.target.value)}
+              />
+            </FormField>
+            <FormField label="实际作业时间（小时）" error={form.errors.actualWorkHours}>
+              <input
+                className="input"
+                inputMode="decimal"
+                value={form.values.actualWorkHours}
+                onChange={(event) => form.setValue('actualWorkHours', event.target.value)}
               />
             </FormField>
             <FormField label="清淤方式" error={form.errors.method}>
