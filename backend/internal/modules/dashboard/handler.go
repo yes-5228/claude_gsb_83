@@ -51,3 +51,12 @@ func (h *Handler) RecentRecords(c *fiber.Ctx) error {
 	}
 	return httpx.OK(c, items)
 }
+
+// TeamWorkload 班组工作量（默认当月）。
+func (h *Handler) TeamWorkload(c *fiber.Ctx) error {
+	resp, err := h.svc.TeamWorkload(c.UserContext(), c.Query("month"))
+	if err != nil {
+		return err
+	}
+	return httpx.OK(c, resp)
+}

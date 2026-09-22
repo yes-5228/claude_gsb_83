@@ -8,7 +8,13 @@ import { StatCard } from '../../components/StatCard';
 import { StateBlock } from '../../components/StateBlock';
 import { useAsync } from '../../hooks/useAsync';
 import { useMeta } from '../../providers/MetaProvider';
-import type { DistrictStat, PendingAcceptanceItem, RecentRecordItem } from '../../types/domain';
+import type {
+  DashboardTeamWorkload,
+  DistrictStat,
+  PendingAcceptanceItem,
+  RecentRecordItem,
+  TeamWorkload
+} from '../../types/domain';
 import { formatDate, formatLength, formatNumber, formatPercent, formatVolume } from '../../utils/format';
 import { optionLabel } from '../../utils/options';
 
@@ -93,6 +99,13 @@ const recentColumns: Column<RecentRecordItem>[] = [
   { key: 'sludgeVolumeM3', title: '清淤量', width: '110px', align: 'right', render: (row) => formatVolume(row.sludgeVolumeM3) }
 ];
 
+const teamColumns: Column<TeamWorkload>[] = [
+  { key: 'teamName', title: '班组', render: (row) => <span className="cell-main">{row.teamName}</span> },
+  { key: 'personDays', title: '工日', align: 'right', render: (row) => formatNumber(row.personDays, 0) },
+  { key: 'recordCount', title: '记录', align: 'right', render: (row) => formatNumber(row.recordCount, 0) },
+  { key: 'sludgeVolumeM3', title: '清淤量', align: 'right', render: (row) => formatVolume(row.sludgeVolumeM3) }
+];
+
 export function DashboardPage() {
   const navigate = useNavigate();
   const { enums } = useMeta();
@@ -100,6 +113,7 @@ export function DashboardPage() {
   const districts = useAsync(() => dashboardApi.districtStats(), []);
   const pending = useAsync(() => dashboardApi.pendingAcceptance(6), []);
   const recent = useAsync(() => dashboardApi.recentRecords(6), []);
+  const teamWorkload = useAsync<DashboardTeamWorkload>(() => dashboardApi.teamWorkload(), []);
 
   const data = overview.data;
   const taskStatusBars: BarItem[] = enums
@@ -244,6 +258,26 @@ export function DashboardPage() {
               error={districts.error}
               onRetry={districts.reload}
               emptyText="暂无片区数据"
+            />
+          </div>
+        </SectionCard>
+      </div>
+
+      <div className="panel-grid panel-grid-wide">
+        <SectionCard
+          title={`本月班组工作量（${teamWorkload.data?.month ?? ''}）`}
+          subtitle="按作业日期归属到当时班组，与班组统计、任务详情同一口径"
+          extra={<Link className="link" to="/team-workload">班组工作量统计</Link>}
+        >
+          <div className="card-body-flush">
+            <DataTable
+              columns={teamColumns}
+              rows={teamWorkload.data?.items ?? []}
+              rowKey={(row) => row.teamName}
+              loading={teamWorkload.loading}
+              error={teamWorkload.error}
+              onRetry={teamWorkload.reload}
+              emptyText="本月暂无班组工作量"
             />
           </div>
         </SectionCard>

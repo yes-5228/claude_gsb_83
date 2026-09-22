@@ -3,6 +3,8 @@ package dashboard
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -321,7 +323,8 @@ type RecentRecordItem struct {
 	SludgeVolumeM3 float64   `json:"sludgeVolumeM3"`
 }
 
-// RecentRecords 最近录入的清淤记录。
+// RecentRecords 最近录入的清淤记录。展示的班组与工作量统计同一口径：
+// 按每条记录的作业日期归属到当时生效的班组，改派后历史作业不会张冠李戴。
 func (s *Service) RecentRecords(ctx context.Context, limit int) ([]RecentRecordItem, error) {
 	if limit <= 0 || limit > 50 {
 		limit = 10
@@ -329,7 +332,8 @@ func (s *Service) RecentRecords(ctx context.Context, limit int) ([]RecentRecordI
 	items := make([]RecentRecordItem, 0, limit)
 	err := s.db.WithContext(ctx).Table(refx.TableCleaningRecords + " AS r").
 		Select(`r.id AS record_id, r.code, r.cleaned_at, r.length_m, r.sludge_volume_m3, r.recorder_name,
-			t.id AS task_id, t.code AS task_code, t.title AS task_title, t.team_name,
+			t.id AS task_id, t.code AS task_code, t.title AS task_title,
+			` + refx.RecordAttributedTeamExpr("r") + ` AS team_name,
 			COALESCE(s.code, '') AS segment_code,
 			COALESCE(s.name, '') AS segment_name`).
 		Joins("INNER JOIN " + refx.TableCleaningTasks + " AS t ON t.id = r.task_id").
@@ -341,6 +345,47 @@ func (s *Service) RecentRecords(ctx context.Context, limit int) ([]RecentRecordI
 		return nil, httpx.WrapInternal("查询最近清淤记录失败", err)
 	}
 	return items, nil
+}
+
+// TeamWorkload 看板班组工作量（默认当月，可通过 month 指定 YYYY-MM）。
+// 口径与「班组工作量统计」「任务详情」完全一致，均取自 refx 的归属查询。
+func (s *Service) TeamWorkload(ctx context.Context, month string) (*TeamWorkloadResponse, error) {
+	month, from, to, err := parseMonth(month)
+	if err != nil {
+		return nil, err
+	}
+	items, err := refx.TeamWorkloadBetween(ctx, s.db, &from, &to)
+	if err != nil {
+		return nil, httpx.WrapInternal("统计班组工作量失败", err)
+	}
+	return &TeamWorkloadResponse{Month: month, From: from, To: to, Items: items}, nil
+}
+
+// TeamWorkloadResponse 看板班组工作量。
+type TeamWorkloadResponse struct {
+	Month string              `json:"month"`
+	From  date.Date           `json:"from"`
+	To    date.Date           `json:"to"`
+	Items []refx.TeamWorkload `json:"items"`
+}
+
+// parseMonth 解析可选的 YYYY-MM 参数，缺省为当前月。
+func parseMonth(month string) (string, date.Date, date.Date, error) {
+	month = strings.TrimSpace(month)
+	if month == "" {
+		today := date.Today()
+		month = fmt.Sprintf("%04d-%02d", today.Year(), int(today.Month()))
+	}
+	if len(month) != 7 || month[4] != '-' {
+		return "", date.Date{}, date.Date{}, httpx.Validation("月份格式不正确，应为 YYYY-MM")
+	}
+	parsed, err := time.Parse("2006-01", month)
+	if err != nil {
+		return "", date.Date{}, date.Date{}, httpx.Validation("月份格式不正确，应为 YYYY-MM")
+	}
+	from := date.New(time.Date(parsed.Year(), parsed.Month(), 1, 0, 0, 0, 0, time.UTC))
+	to := date.New(from.AddDate(0, 1, -1))
+	return month, from, to, nil
 }
 
 // countBy 按指定列做分组计数。

@@ -32,6 +32,28 @@ const (
 	MethodRobot        = "robot"
 )
 
+// TeamReassignment 班组改派记录。
+//
+// 一条记录表示某任务在 EffectiveDate 当天 0 点起，由 FromTeamName 移交 ToTeamName 负责。
+// 清淤工作量不直接改写在记录上，而是按「作业日期时点生效的改派」动态归属：
+// 作业日期早于生效日的工作量归原班组，达到或晚于生效日的归接手班组，
+// 从而跨作业日期改派时同一批工作量不会被两个班组各算一遍。
+type TeamReassignment struct {
+	ID            uint      `gorm:"primaryKey" json:"id"`
+	TaskID        uint      `gorm:"index;not null" json:"taskId"`
+	FromTeamName  string    `gorm:"size:64;not null" json:"fromTeamName"`
+	ToTeamName    string    `gorm:"size:64;index;not null" json:"toTeamName"`
+	Reason        string    `gorm:"size:255;not null" json:"reason"`
+	EffectiveDate date.Date `gorm:"type:date;index;not null" json:"effectiveDate"`
+	OperatorName  string    `gorm:"size:32" json:"operatorName"`
+	CreatedAt     time.Time `json:"createdAt"`
+}
+
+// TableName 指定表名。
+func (TeamReassignment) TableName() string {
+	return "team_reassignments"
+}
+
 // CleaningTask 清淤任务。
 type CleaningTask struct {
 	ID            uint       `gorm:"primaryKey" json:"id"`

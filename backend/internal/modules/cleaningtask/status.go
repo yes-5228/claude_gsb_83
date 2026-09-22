@@ -23,6 +23,7 @@ const (
 	ActionAccept   = "accept"
 	ActionCancel   = "cancel"
 	ActionEdit     = "edit"
+	ActionReassign = "reassign"
 )
 
 // allowedTransitions 任务状态的合法流转。

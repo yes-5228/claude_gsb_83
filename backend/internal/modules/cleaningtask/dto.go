@@ -31,6 +31,14 @@ type CancelRequest struct {
 	Reason string `json:"reason" label:"取消原因" validate:"required,max=255"`
 }
 
+// ReassignRequest 任务改派班组请求体。
+type ReassignRequest struct {
+	ToTeamName    string    `json:"toTeamName" label:"接手班组" validate:"required,max=64"`
+	Reason        string    `json:"reason" label:"改派原因" validate:"required,max=255"`
+	EffectiveDate date.Date `json:"effectiveDate" label:"生效日期"`
+	OperatorName  string    `json:"operatorName" label:"操作人" validate:"max=32"`
+}
+
 // ListQuery 任务列表查询条件。
 type ListQuery struct {
 	Keyword       string
@@ -87,11 +95,13 @@ type ListItem struct {
 	RecordTotals refx.RecordTotals  `json:"recordTotals"`
 }
 
-// DetailResponse 任务详情：任务 + 管段 + 清淤汇总 + 验收结论 + 可执行操作。
+// DetailResponse 任务详情：任务 + 管段 + 清淤汇总 + 验收结论 + 可执行操作 + 班组工作量与改派记录。
 type DetailResponse struct {
 	Task           *CleaningTask         `json:"task"`
 	Segment        *pipesegment.Brief    `json:"segment"`
 	RecordTotals   refx.RecordTotals     `json:"recordTotals"`
 	Acceptance     *refx.AcceptanceBrief `json:"acceptance"`
 	AllowedActions []string              `json:"allowedActions"`
+	TeamWorkload   []refx.TeamWorkload   `json:"teamWorkload"`
+	Reassignments  []TeamReassignment    `json:"reassignments"`
 }

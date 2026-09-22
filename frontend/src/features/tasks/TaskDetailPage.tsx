@@ -15,8 +15,15 @@ import { StatusTag } from '../../components/StatusTag';
 import { StateBlock } from '../../components/StateBlock';
 import { useToast } from '../../components/Toast';
 import { useAsync } from '../../hooks/useAsync';
-import type { RecordListItem, TaskAction } from '../../types/domain';
-import { formatDate, formatDateTime, formatLength, formatNumber, formatVolume } from '../../utils/format';
+import type { RecordListItem, TaskAction, TeamReassignment, TeamWorkload } from '../../types/domain';
+import {
+  formatDate,
+  formatDateTime,
+  formatLength,
+  formatNumber,
+  formatVolume,
+  today
+} from '../../utils/format';
 
 export function TaskDetailPage() {
   const params = useParams();
@@ -38,6 +45,13 @@ export function TaskDetailPage() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelError, setCancelError] = useState('');
+
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [toTeam, setToTeam] = useState('');
+  const [reassignReason, setReassignReason] = useState('');
+  const [effectiveDate, setEffectiveDate] = useState('');
+  const [operator, setOperator] = useState('');
+  const [reassignError, setReassignError] = useState('');
 
   const task = detail.data?.task;
   const totals = detail.data?.recordTotals;
@@ -85,6 +99,57 @@ export function TaskDetailPage() {
     setCancelReason('');
   };
 
+  const openReassign = () => {
+    setToTeam('');
+    setReassignReason('');
+    setEffectiveDate(today());
+    setOperator('');
+    setReassignError('');
+    setReassignOpen(true);
+  };
+
+  const submitReassign = async () => {
+    const nextTeam = toTeam.trim();
+    const reason = reassignReason.trim();
+    if (!nextTeam) {
+      setReassignError('请填写接手班组');
+      return;
+    }
+    if (task && nextTeam === task.teamName) {
+      setReassignError('接手班组与当前班组相同，无需改派');
+      return;
+    }
+    if (!reason) {
+      setReassignError('请填写改派原因');
+      return;
+    }
+    if (!effectiveDate) {
+      setReassignError('请选择生效日期');
+      return;
+    }
+    setReassignError('');
+    setBusy(true);
+    try {
+      await taskApi.reassign(id, {
+        toTeamName: nextTeam,
+        reason,
+        effectiveDate,
+        operatorName: operator.trim() || undefined
+      });
+      toast.success(`任务已改派给 ${nextTeam}`);
+      setReassignOpen(false);
+      detail.reload();
+      records.reload();
+    } catch (cause: unknown) {
+      toast.error(toErrorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const teamWorkload: TeamWorkload[] = detail.data?.teamWorkload ?? [];
+  const reassignments: TeamReassignment[] = detail.data?.reassignments ?? [];
+
   const recordColumns: Column<RecordListItem>[] = [
     {
       key: 'code',
@@ -109,6 +174,32 @@ export function TaskDetailPage() {
     },
     { key: 'personnelCount', title: '作业人数', width: '90px', align: 'right', render: (row) => formatNumber(row.personnelCount, 0) },
     { key: 'recorderName', title: '记录人', width: '100px', render: (row) => row.recorderName || '—' }
+  ];
+
+  const teamColumns: Column<TeamWorkload>[] = [
+    { key: 'teamName', title: '归属班组', render: (row) => <span className="cell-main">{row.teamName}</span> },
+    { key: 'recordCount', title: '记录条数', align: 'right', render: (row) => formatNumber(row.recordCount, 0) },
+    { key: 'personDays', title: '作业工日', align: 'right', render: (row) => formatNumber(row.personDays, 0) },
+    { key: 'sludgeVolumeM3', title: '清淤量', align: 'right', render: (row) => formatVolume(row.sludgeVolumeM3) },
+    { key: 'cleanedLengthM', title: '清淤长度', align: 'right', render: (row) => formatLength(row.cleanedLengthM) }
+  ];
+
+  const reassignmentColumns: Column<TeamReassignment>[] = [
+    { key: 'effectiveDate', title: '生效日期', width: '110px', render: (row) => formatDate(row.effectiveDate) },
+    {
+      key: 'teams',
+      title: '原班组 → 接手班组',
+      render: (row) => (
+        <span>
+          <span className="tag tag-muted">{row.fromTeamName}</span>
+          <span style={{ margin: '0 8px' }}>→</span>
+          <span className="tag tag-primary">{row.toTeamName}</span>
+        </span>
+      )
+    },
+    { key: 'reason', title: '改派原因', render: (row) => row.reason },
+    { key: 'operatorName', title: '操作人', width: '100px', render: (row) => row.operatorName || '—' },
+    { key: 'createdAt', title: '登记时间', width: '150px', render: (row) => formatDateTime(row.createdAt) }
   ];
 
   return (
@@ -149,6 +240,11 @@ export function TaskDetailPage() {
             {can('cancel') ? (
               <button type="button" className="btn btn-ghost" onClick={() => setCancelOpen(true)}>
                 取消任务
+              </button>
+            ) : null}
+            {can('reassign') ? (
+              <button type="button" className="btn btn-primary" disabled={busy} onClick={openReassign}>
+                改派班组
               </button>
             ) : null}
             <button type="button" className="btn btn-danger" onClick={() => setConfirmAction('delete')}>
@@ -226,6 +322,42 @@ export function TaskDetailPage() {
                   onRetry={records.reload}
                   emptyText="该任务还没有清淤记录"
                   emptyDescription="录入第一条清淤记录后，任务会自动从待开工推进为清淤中。"
+                />
+              </div>
+            </SectionCard>
+
+            <SectionCard
+              title="班组工作量归属"
+              subtitle="按每条清淤记录的实际作业日期归属到当时班组，与班组工作量统计、看板同一口径；跨日改派不会重复计算"
+            >
+              <div className="card-body-flush">
+                <DataTable
+                  columns={teamColumns}
+                  rows={teamWorkload}
+                  rowKey={(row) => row.teamName}
+                  emptyText="暂无可归属的工作量"
+                  emptyDescription="任务录入清淤记录后，按作业日期归属到当时实施的班组。"
+                />
+              </div>
+            </SectionCard>
+
+            <SectionCard
+              title="改派记录"
+              subtitle="记录每次班组改派的原班组、接手班组、原因与生效日期"
+              extra={
+                can('reassign') ? (
+                  <button type="button" className="btn btn-primary btn-sm" onClick={openReassign}>
+                    改派班组
+                  </button>
+                ) : null
+              }
+            >
+              <div className="card-body-flush">
+                <DataTable
+                  columns={reassignmentColumns}
+                  rows={reassignments}
+                  rowKey={(row) => row.id}
+                  emptyText="该任务尚未改派过班组"
                 />
               </div>
             </SectionCard>
@@ -313,6 +445,85 @@ export function TaskDetailPage() {
           {cancelError ? <span className="form-error">{cancelError}</span> : null}
         </div>
         <p className="form-note">任务取消后不可再恢复，也不能继续录入清淤记录。</p>
+      </Modal>
+
+      <Modal
+        open={reassignOpen}
+        title="改派实施班组"
+        width={560}
+        onClose={() => setReassignOpen(false)}
+        footer={
+          <>
+            <button type="button" className="btn btn-ghost" onClick={() => setReassignOpen(false)}>
+              放弃
+            </button>
+            <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void submitReassign()}>
+              {busy ? '提交中…' : '确认改派'}
+            </button>
+          </>
+        }
+      >
+        <div className="alert alert-info">
+          <p>
+            当前班组为 <strong>{task?.teamName || '—'}</strong>。改派后任务交接给新班组，
+            工作量按清淤记录的<strong>实际作业日期</strong>归属：生效日期之前的工作量仍计入原班组，
+            之后的计入接手班组，不会两边各算一遍。已完工报验的任务不能改派。
+          </p>
+        </div>
+        <div className="form-grid">
+          <div className="form-field">
+            <span className="form-label">
+              接手班组
+              <em className="form-required">*</em>
+            </span>
+            <input
+              className="input"
+              value={toTeam}
+              placeholder="例如 城西养护二班"
+              onChange={(event) => setToTeam(event.target.value)}
+            />
+          </div>
+          <div className="form-field">
+            <span className="form-label">
+              生效日期
+              <em className="form-required">*</em>
+            </span>
+            <input
+              className="input"
+              type="date"
+              max={today()}
+              value={effectiveDate}
+              onChange={(event) => setEffectiveDate(event.target.value)}
+            />
+          </div>
+          <div className="form-field">
+            <span className="form-label">操作人</span>
+            <input
+              className="input"
+              value={operator}
+              placeholder="可选"
+              onChange={(event) => setOperator(event.target.value)}
+            />
+          </div>
+          <div className="form-field" style={{ gridColumn: 'span 2' }}>
+            <span className="form-label">
+              改派原因
+              <em className="form-required">*</em>
+            </span>
+            <textarea
+              className="textarea"
+              value={reassignReason}
+              placeholder="例如 原班组设备检修，剩余作业移交接手班组"
+              onChange={(event) => setReassignReason(event.target.value)}
+            />
+          </div>
+        </div>
+        {reassignError ? (
+          <p className="form-error" style={{ marginTop: 8 }}>
+            {reassignError}
+          </p>
+        ) : null}
+        <p className="form-note">若目标月份的班组工作量月报已出具并封账，改派会被拒绝以保证月报不被改写。</p>
       </Modal>
     </div>
   );

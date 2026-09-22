@@ -126,3 +126,33 @@ func (h *Handler) Cancel(c *fiber.Ctx) error {
 	}
 	return httpx.Message(c, "任务已取消", task)
 }
+
+// Reassign 改派班组。
+func (h *Handler) Reassign(c *fiber.Ctx) error {
+	id, err := httpx.PathID(c, "id", "任务")
+	if err != nil {
+		return err
+	}
+	var req ReassignRequest
+	if err := httpx.BindAndValidate(c, &req); err != nil {
+		return err
+	}
+	item, err := h.svc.Reassign(c.UserContext(), id, req)
+	if err != nil {
+		return err
+	}
+	return httpx.Message(c, "任务已改派给 "+item.ToTeamName, item)
+}
+
+// Reassignments 查询任务改派记录。
+func (h *Handler) Reassignments(c *fiber.Ctx) error {
+	id, err := httpx.PathID(c, "id", "任务")
+	if err != nil {
+		return err
+	}
+	items, err := h.svc.ListReassignments(c.UserContext(), id)
+	if err != nil {
+		return err
+	}
+	return httpx.OK(c, items)
+}

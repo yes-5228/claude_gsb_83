@@ -19,6 +19,8 @@ func Register(router fiber.Router, db *gorm.DB, segments SegmentGateway) *Servic
 	group.Post("/:id/start", handler.Start)
 	group.Post("/:id/complete", handler.Complete)
 	group.Post("/:id/cancel", handler.Cancel)
+	group.Post("/:id/reassign", handler.Reassign)
+	group.Get("/:id/reassignments", handler.Reassignments)
 
 	return svc
 }

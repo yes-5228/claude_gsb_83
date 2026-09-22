@@ -14,6 +14,7 @@
 | 清淤任务 | `/tasks`、`/tasks/new`、`/tasks/:id`、`/tasks/:id/edit` | 任务登记、开工 / 完工报验 / 取消、任务下清淤记录与验收结论 |
 | 清淤记录 | `/records`、`/records/new`、`/records/:id`、`/records/:id/edit` | 按次录入现场数据（长度、清淤量、用水量、人数、设备、安全措施等） |
 | 验收记录 | `/acceptances`、`/acceptances/new`、`/acceptances/:id` | 登记验收结论、整改跟踪、复验 |
+| 班组工作量 | `/team-workload` | 按月班组工作量统计与月报封账，口径与任务详情、看板一致 |
 | 枚举字典 | `/api/v1/meta/enums` | 后端统一下发全部枚举中文标签，前端不硬编码文案 |
 
 ## 技术栈
@@ -38,6 +39,7 @@
 │   │   │   ├── cleaningtask/        # 清淤任务（含状态机）
 │   │   │   ├── cleaningrecord/      # 清淤记录
 │   │   │   ├── acceptance/          # 验收记录
+│   │   │   ├── team/                # 班组工作量统计与月报封账
 │   │   │   ├── dashboard/           # 运行看板（只读汇总）
 │   │   │   └── meta/                # 枚举字典
 │   │   ├── router/                  # 路由装配
@@ -49,7 +51,7 @@
 │   │   ├── api/                     # 接口封装（统一拆信封、抛 ApiError）
 │   │   ├── components/              # 通用组件（布局、表格、分页、弹窗、标签、Toast 等）
 │   │   ├── features/                # 按业务模块拆分的页面
-│   │   │   ├── dashboard/  segments/  tasks/  records/  acceptances/
+│   │   │   ├── dashboard/  segments/  tasks/  records/  acceptances/  team/
 │   │   ├── hooks/                   # useAsync / useForm
 │   │   ├── providers/               # 枚举字典 Provider
 │   │   ├── styles/                  # 全局样式
@@ -147,6 +149,12 @@ npm run dev            # http://localhost:5173
 | POST | `/api/v1/cleaning-tasks/:id/start` | 开工（待开工 → 清淤中） |
 | POST | `/api/v1/cleaning-tasks/:id/complete` | 完工报验（清淤中 → 待验收，需至少 1 条清淤记录） |
 | POST | `/api/v1/cleaning-tasks/:id/cancel` | 取消任务（需填写取消原因） |
+| POST | `/api/v1/cleaning-tasks/:id/reassign` | 改派班组（原班组 / 接手班组 / 原因 / 生效日期） |
+| GET | `/api/v1/cleaning-tasks/:id/reassignments` | 任务的改派记录 |
+| GET | `/api/v1/team-workload?month=YYYY-MM` | 班组工作量月报统计（默认当月） |
+| GET | `/api/v1/team-workload/reports` | 已出具（封账）的月报清单 |
+| POST | `/api/v1/team-workload/reports` | 出具某月工作量月报并封账 |
+| GET | `/api/v1/dashboard/team-workload?month=YYYY-MM` | 看板班组工作量（与统计同口径） |
 | GET | `/api/v1/cleaning-records` | 记录列表（`keyword` `taskId` `segmentId` `method` `weather` `dateFrom` `dateTo`） |
 | GET | `/api/v1/cleaning-records/:id` | 记录详情（含所属任务与管段） |
 | POST/PUT/DELETE | `/api/v1/cleaning-records[/:id]` | 录入 / 修改 / 删除清淤记录 |
@@ -179,6 +187,22 @@ pending ──开工──▶ in_progress ──完工报验──▶ completed 
   回写最近清淤日期与运行状态。
 - 删除保护：被任务引用的管段、已产生清淤记录或验收记录的任务、被验收记录引用的清淤记录、
   以及已合格的验收记录，都不允许删除。
+
+### 班组改派与工作量归属
+
+任务派工后允许改派班组，每次改派记录**原班组、接手班组、改派原因与时间（含生效日期）**。
+工作量归属只有一个口径，收敛在 `internal/shared/refx/workload.go`，
+**班组工作量统计、任务详情、运行看板**三处共用同一套查询：
+
+- 按每条清淤记录的**实际作业日期**归属到「该日期时点上生效的班组」：
+  作业日期早于改派生效日的归原班组，达到或晚于生效日的归接手班组；
+  因此改派跨越作业日期时，同一批工作量不会被两个班组各算一遍。
+- 只有「待开工 / 清淤中」且**尚未完工报验**的任务可以改派；已完工报验
+  （含报验后退回整改）、已验收、已取消的任务不允许再改派。
+- 两个人同时改派同一条任务时，任务班组按「当前班组快照」条件更新，
+  后提交一方乐观锁失败，只有一次改派生效（`team_reassignments` 与任务更新在同一事务）。
+- 班组工作量月报可按月**出具并封账**（`team_workload_reports`）。已封账月份的归属被冻结，
+  会改变该月归属的跨月改派会被拒绝，已出月报不会被改写；不触及封账月份的改派仍可进行。
 
 ## 校验与错误码
 

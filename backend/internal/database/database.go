@@ -17,6 +17,7 @@ import (
 	"github.com/drainage/desilting/internal/modules/cleaningrecord"
 	"github.com/drainage/desilting/internal/modules/cleaningtask"
 	"github.com/drainage/desilting/internal/modules/pipesegment"
+	"github.com/drainage/desilting/internal/modules/team"
 )
 
 // Open 根据配置建立数据库连接。
@@ -76,5 +77,7 @@ func Migrate(db *gorm.DB) error {
 		&cleaningtask.CleaningTask{},
 		&cleaningrecord.CleaningRecord{},
 		&acceptance.AcceptanceRecord{},
+		&cleaningtask.TeamReassignment{},
+		&team.WorkloadReport{},
 	)
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/drainage/desilting/internal/modules/dashboard"
 	"github.com/drainage/desilting/internal/modules/meta"
 	"github.com/drainage/desilting/internal/modules/pipesegment"
+	"github.com/drainage/desilting/internal/modules/team"
 )
 
 // startedAt 记录进程启动时间，用于健康检查展示运行时长。
@@ -41,5 +42,8 @@ func Setup(app *fiber.App, db *gorm.DB, cfg *config.Config) {
 	taskService := cleaningtask.Register(api, db, segmentService)
 	recordService := cleaningrecord.Register(api, db, taskService)
 	acceptance.Register(api, db, taskService, segmentService, recordService)
+	teamService := team.Register(api, db)
+	// 月报封账保护注入改派流程：已封账月份的工作量归属不允许被改派改变。
+	taskService.SetClosedMonthGuard(teamService)
 	dashboard.Register(api, db)
 }

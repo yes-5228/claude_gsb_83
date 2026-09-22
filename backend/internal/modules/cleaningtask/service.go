@@ -26,13 +26,36 @@ type SegmentGateway interface {
 
 // Service 清淤任务业务逻辑。
 type Service struct {
-	repo     *Repository
-	segments SegmentGateway
+	repo        *Repository
+	reassigns   *ReassignmentRepository
+	reassignSvc *ReassignService
+	segments    SegmentGateway
 }
 
 // NewService 构造服务。
 func NewService(repo *Repository, segments SegmentGateway) *Service {
-	return &Service{repo: repo, segments: segments}
+	reassigns := NewReassignmentRepository(repo.DB())
+	return &Service{
+		repo:        repo,
+		reassigns:   reassigns,
+		reassignSvc: NewReassignService(reassigns, repo),
+		segments:    segments,
+	}
+}
+
+// Reassign 改派任务班组。详见 ReassignService.Reassign。
+func (s *Service) Reassign(ctx context.Context, id uint, req ReassignRequest) (*TeamReassignment, error) {
+	return s.reassignSvc.Reassign(ctx, id, req)
+}
+
+// ListReassignments 查询任务改派记录。
+func (s *Service) ListReassignments(ctx context.Context, taskID uint) ([]TeamReassignment, error) {
+	return s.reassignSvc.ListByTask(ctx, taskID)
+}
+
+// SetClosedMonthGuard 注入月报封账保护（由 team 模块在装配阶段调用）。
+func (s *Service) SetClosedMonthGuard(guard ClosedMonthGuard) {
+	s.reassignSvc.SetClosedMonthGuard(guard)
 }
 
 // Create 登记清淤任务，任务编号按 日期 + 流水号 自动生成。
@@ -163,7 +186,12 @@ func (s *Service) Detail(ctx context.Context, id uint) (*DetailResponse, error) 
 		return nil, err
 	}
 
-	detail := &DetailResponse{Task: task, AllowedActions: AllowedActions(task.Status)}
+	detail := &DetailResponse{Task: task}
+	hasAcceptance, err := s.repo.HasAcceptance(ctx, id)
+	if err != nil {
+		return nil, httpx.WrapInternal("检查验收记录失败", err)
+	}
+	detail.AllowedActions = AllowedActionsFor(task, hasAcceptance)
 	if briefs, err := s.segments.BriefsByIDs(ctx, []uint{task.PipeSegmentID}); err == nil {
 		if brief, ok := briefs[task.PipeSegmentID]; ok {
 			detail.Segment = &brief
@@ -177,6 +205,19 @@ func (s *Service) Detail(ctx context.Context, id uint) (*DetailResponse, error) 
 		return nil, httpx.WrapInternal("统计清淤量失败", err)
 	}
 	detail.RecordTotals = totals
+
+	// 按「作业日期归属班组」的统一口径拆分工作量，并带出改派记录。
+	teamWorkload, err := refx.TeamWorkloadByTaskIDs(ctx, s.repo.DB(), []uint{id})
+	if err != nil {
+		return nil, httpx.WrapInternal("统计班组工作量失败", err)
+	}
+	detail.TeamWorkload = teamWorkload[id]
+
+	reassignments, err := s.reassigns.ListByTask(ctx, id)
+	if err != nil {
+		return nil, httpx.WrapInternal("查询改派记录失败", err)
+	}
+	detail.Reassignments = reassignments
 
 	acceptance, err := refx.LatestAcceptanceForTask(ctx, s.repo.DB(), id)
 	if err != nil {
@@ -292,14 +333,30 @@ func (s *Service) CountByStatus(ctx context.Context) (map[string]int64, error) {
 func AllowedActions(status string) []string {
 	switch status {
 	case StatusPending:
-		return []string{ActionStart, ActionEdit, ActionCancel}
+		return []string{ActionStart, ActionEdit, ActionCancel, ActionReassign}
 	case StatusInProgress:
-		return []string{ActionComplete, ActionEdit, ActionCancel}
+		return []string{ActionComplete, ActionEdit, ActionCancel, ActionReassign}
 	case StatusCompleted:
 		return []string{ActionAccept}
 	default:
 		return []string{}
 	}
+}
+
+// AllowedActionsFor 与 AllowedActions 一致，但已完工报验过的任务（含退回整改）
+// 不再允许改派班组。
+func AllowedActionsFor(task *CleaningTask, hasAcceptance bool) []string {
+	actions := AllowedActions(task.Status)
+	if hasAcceptance {
+		filtered := actions[:0]
+		for _, action := range actions {
+			if action != ActionReassign {
+				filtered = append(filtered, action)
+			}
+		}
+		return filtered
+	}
+	return actions
 }
 
 // build 校验并写入任务字段。

@@ -10,7 +10,7 @@ export type Weather = 'sunny' | 'cloudy' | 'overcast' | 'light_rain' | 'heavy_ra
 export type AcceptanceResult = 'pass' | 'rework';
 
 /** 任务可执行的操作标识，由后端 allowedActions 下发。 */
-export type TaskAction = 'start' | 'complete' | 'accept' | 'cancel' | 'edit';
+export type TaskAction = 'start' | 'complete' | 'accept' | 'cancel' | 'edit' | 'reassign';
 
 export interface Option {
   value: string;
@@ -156,6 +156,56 @@ export interface RecordTotals {
   latestCleanedAt: string | null;
 }
 
+/** 班组改派记录：原班组、接手班组、原因、生效日期与登记时间。 */
+export interface TeamReassignment {
+  id: number;
+  taskId: number;
+  fromTeamName: string;
+  toTeamName: string;
+  reason: string;
+  effectiveDate: string | null;
+  operatorName: string;
+  createdAt: string;
+}
+
+/** 班组工作量，统一按清淤记录实际作业日期归属。 */
+export interface TeamWorkload {
+  teamName: string;
+  recordCount: number;
+  personDays: number;
+  sludgeVolumeM3: number;
+  cleanedLengthM: number;
+}
+
+/** 班组工作量月报（按月封账）。 */
+export interface WorkloadReport {
+  id: number;
+  month: string;
+  published: boolean;
+  remark: string;
+  publishedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 某月班组工作量响应（含封账状态）。 */
+export interface TeamWorkloadResponse {
+  month: string;
+  from: string | null;
+  to: string | null;
+  items: TeamWorkload[];
+  published: boolean;
+  report: WorkloadReport | null;
+}
+
+/** 改派班组请求体。 */
+export interface ReassignPayload {
+  toTeamName: string;
+  reason: string;
+  effectiveDate: string;
+  operatorName?: string;
+}
+
 export interface AcceptanceBrief {
   id: number;
   code: string;
@@ -180,6 +230,8 @@ export interface TaskDetail {
   recordTotals: RecordTotals;
   acceptance: AcceptanceBrief | null;
   allowedActions: TaskAction[];
+  teamWorkload: TeamWorkload[];
+  reassignments: TeamReassignment[];
 }
 
 export interface TaskPayload {
@@ -373,6 +425,9 @@ export interface RecentRecordItem {
   lengthM: number;
   sludgeVolumeM3: number;
 }
+
+/** 看板班组工作量响应，与班组工作量统计同一归属口径。 */
+export type DashboardTeamWorkload = TeamWorkloadResponse;
 
 export interface Enums {
   pipeTypes: Option[];
